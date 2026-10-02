@@ -130,6 +130,21 @@ def _status_run(m: Manifest, args: argparse.Namespace) -> int:
 COMMANDS.append(("status", "show the release in progress", _status_args, _status_run))
 
 
+def _push_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("repos", nargs="*")
+    p.add_argument("--tag")
+
+
+def _push_run(m: Manifest, args: argparse.Namespace) -> int:
+    from . import release
+    for line in release.push_prs(m, current_tag(m, args.tag), args.repos, confirm=confirm):
+        print(line)
+    return 0
+
+
+COMMANDS.append(("push-prs", "push sync branches and open or update PRs", _push_args, _push_run))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="untwine")
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
