@@ -145,6 +145,21 @@ def _push_run(m: Manifest, args: argparse.Namespace) -> int:
 COMMANDS.append(("push-prs", "push sync branches and open or update PRs", _push_args, _push_run))
 
 
+def _promote_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("repos", nargs="*")
+    p.add_argument("--tag")
+
+
+def _promote_run(m: Manifest, args: argparse.Namespace) -> int:
+    from . import release
+    done = release.promote(m, current_tag(m, args.tag), args.repos, confirm=confirm)
+    print(f"promoted: {', '.join(done) or 'nothing'}")
+    return 0
+
+
+COMMANDS.append(("promote", "move main and open-usd to the reviewed sync branches", _promote_args, _promote_run))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="untwine")
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
