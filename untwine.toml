@@ -1,0 +1,84 @@
+# Untwine release manifest. `deps` are the direct pxr-* dependencies each
+# repository declares (conanfile requires); `extra_deps` explains entries that
+# upstream's pxr_library() does not list.
+workspace = ".."
+upstream_url = "git@github.com:PixarAnimationStudios/OpenUSD.git"
+github_org = "untwine"
+
+[release]
+openusd = "v26.08"
+tbb = "2023.1.0"
+
+[repos.pxr-tbb]
+kind = "support"
+
+[repos.pxr-boost]
+kind = "special"
+upstream = "pxr/external/boost"
+python = "required"
+
+[repos.pxr-pegtl]
+kind = "special"
+upstream = "pxr/base/pegtl"
+
+[repos.pxr-arch]
+upstream = "pxr/base/arch"
+
+[repos.pxr-tf]
+upstream = "pxr/base/tf"
+python = "optional"
+deps = ["arch", "boost"]
+
+[repos.pxr-js]
+upstream = "pxr/base/js"
+deps = ["arch", "tf"]
+extra_deps = { arch = "includes <pxr/arch/...> headers directly" }
+
+[repos.pxr-gf]
+upstream = "pxr/base/gf"
+python = "optional"
+deps = ["arch", "tf", "boost"]
+
+[repos.pxr-trace]
+upstream = "pxr/base/trace"
+python = "optional"
+deps = ["arch", "tf", "js", "boost"]
+
+[repos.pxr-work]
+upstream = "pxr/base/work"
+python = "optional"
+deps = ["arch", "tf", "trace", "boost"]
+extra_deps = { arch = "includes <pxr/arch/...> headers directly" }
+
+[repos.pxr-plug]
+upstream = "pxr/base/plug"
+python = "optional"
+deps = ["arch", "tf", "js", "trace", "work", "boost"]
+test_deps = ["gf"]
+
+[repos.pxr-vt]
+upstream = "pxr/base/vt"
+python = "optional"
+deps = ["arch", "tf", "gf", "trace", "boost"]
+
+[repos.pxr-ts]
+upstream = "pxr/base/ts"
+python = "optional"
+deps = ["arch", "tf", "gf", "vt", "boost"]
+extra_deps = { arch = "includes <pxr/arch/...> headers directly" }
+
+[repos.pxr-ar]
+upstream = "pxr/usd/ar"
+python = "optional"
+deps = ["arch", "tf", "js", "plug", "vt", "boost"]
+
+[repos.pxr-kind]
+upstream = "pxr/usd/kind"
+python = "optional"
+deps = ["tf", "plug", "boost"]
+
+[repos.pxr-sdf]
+upstream = "pxr/usd/sdf"
+python = "optional"
+deps = ["arch", "tf", "gf", "pegtl", "trace", "ts", "vt", "work", "ar", "plug", "boost"]
+extra_deps = { plug = "includes <pxr/plug/...> headers directly" }
