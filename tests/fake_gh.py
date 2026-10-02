@@ -14,8 +14,9 @@ def _done(args, stdout="", code=0):
 
 
 class FakeGh:
-    def __init__(self, origins: dict[str, Path]):
+    def __init__(self, origins: dict[str, Path], root: Path | None = None):
         self.origins = origins
+        self.root = root
         self.prs: dict[int, dict] = {}
         self.check_state = "pass"
 
@@ -48,4 +49,14 @@ class FakeGh:
             return _done(args)
         if args[:2] == ["pr", "checks"]:
             return _done(args, json.dumps([{"bucket": self.check_state}]))
+        if args[:2] == ["repo", "create"]:
+            slug = args[2]
+            if slug in self.origins:
+                return _done(args, "", 1)
+            path = self.root / f"{slug.replace('/', '-')}.git"
+            sh_git(path.parent, "init", "-q", "--bare", str(path))
+            self.origins[slug] = path
+            return _done(args, f"https://github.com/{slug}")
+        if args[:2] == ["repo", "view"]:
+            return _done(args, str(self.origins[args[2]]) + "\n")
         raise AssertionError(f"unexpected gh call: {args}")

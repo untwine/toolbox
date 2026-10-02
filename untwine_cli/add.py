@@ -305,3 +305,27 @@ def add(m: Manifest, lib: str, *, upstream_path: str | None = None, python: str 
         m.path.write_text(manifest_text)
         raise
     return target, sibling
+
+
+def publish_repo(m: Manifest, name: str, *, confirm: Callable[[list[str]], bool]) -> str | None:
+    repo = m.repos.get(name)
+    path = m.repo_path(name)
+    if repo is None or not path.is_dir():
+        raise AddError(f"{name} is not a repository in untwine.toml")
+    if gitutil.ok(path, "remote", "get-url", "origin"):
+        raise AddError(f"{name} already has an origin remote; it is already published")
+    findings = verify.run_checks(path, m, repo)
+    if findings:
+        raise AddError(f"{name} is not ready to publish:\n  " + "\n  ".join(f"{f.check}: {f.message}" for f in findings))
+    slug = github.slug(m, name)
+    main, usd = gitutil.rev(path, "main"), gitutil.rev(path, "open-usd")
+    if not confirm([f"create the public GitHub repository {slug}",
+                    f"push main {main[:12]} and open-usd {usd[:12]} to it"]):
+        return None
+    url = github.create_repo(slug, f"OpenUSD's '{repo.lib}' library as a standalone package.")
+    gitutil.run(path, "remote", "add", "origin", url)
+    gitutil.run(path, "push", "--quiet", "--atomic", "--force-with-lease=refs/heads/main:",
+                "--force-with-lease=refs/heads/open-usd:", "origin", "main", "open-usd")
+    gitutil.run(path, "fetch", "--quiet", "origin")
+    gitutil.run(path, "branch", "--quiet", "--set-upstream-to=origin/main", "main")
+    return url

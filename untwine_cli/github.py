@@ -66,3 +66,8 @@ def checks(repo_slug: str, number: int) -> str:
     if buckets & {"fail", "cancel"}:
         return "fail"
     return "pending" if "pending" in buckets else "pass"
+
+
+def create_repo(repo_slug: str, description: str) -> str:
+    _call(["repo", "create", repo_slug, "--public", "--description", description])
+    return _call(["repo", "view", repo_slug, "--json", "sshUrl", "--jq", ".sshUrl"]).strip()

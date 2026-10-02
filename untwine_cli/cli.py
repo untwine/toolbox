@@ -186,6 +186,20 @@ def _add_run(m: Manifest, args: argparse.Namespace) -> int:
 COMMANDS.append(("add", "create a new pxr-<lib> repository from OpenUSD", _add_args, _add_run))
 
 
+def _publish_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("repo", help="for example pxr-pcp")
+
+
+def _publish_run(m: Manifest, args: argparse.Namespace) -> int:
+    from . import add
+    url = add.publish_repo(m, args.repo, confirm=confirm)
+    print(f"published {args.repo}: {url}" if url else "nothing published")
+    return 0
+
+
+COMMANDS.append(("publish-repo", "create the GitHub repository of a new library and push it", _publish_args, _publish_run))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="untwine")
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
