@@ -58,5 +58,7 @@ class FakeGh:
             self.origins[slug] = path
             return _done(args, f"https://github.com/{slug}")
         if args[:2] == ["repo", "view"]:
+            if args[2] not in self.origins:
+                return _done(args, "", 1)
             return _done(args, str(self.origins[args[2]]) + "\n")
         raise AssertionError(f"unexpected gh call: {args}")

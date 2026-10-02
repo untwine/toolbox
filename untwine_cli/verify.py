@@ -162,7 +162,8 @@ def _pins(tree: _Tree, m: Manifest, repo: Repo) -> list[Finding]:
 
 
 def _markers(tree: _Tree, m: Manifest, repo: Repo) -> list[Finding]:
-    return [Finding("todo", h) for h in tree.grep(re.compile(r"TODO\(untwine\)"))]
+    return [Finding("todo", f"{rel}:{no}: {line.strip()}") for rel in tree.files
+            for no, line in tree.lines(rel) if "TODO(untwine)" in line]
 
 
 def check_history(path: Path, repo: Repo, base: str, head: str) -> list[Finding]:

@@ -55,11 +55,6 @@ class AddTest(TempTest):
         self.assertFalse((self.world.workspace / "pxr-qux").exists())
         self.assertEqual(self.world.manifest_path.read_text(), before)
 
-    def test_python_none_has_no_boost(self):
-        path, _ = add.add(self.world.m, "nope")
-        repo = manifest.load(self.world.manifest_path).repos["pxr-nope"]
-        self.assertEqual((repo.python, repo.deps), ("none", ("arch",)))
-
     def test_cli_add(self):
         out = io.StringIO()
         with redirect_stdout(out):

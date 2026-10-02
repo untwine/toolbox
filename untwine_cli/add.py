@@ -19,6 +19,7 @@ PXR_H_LICENSE = ("// Copyright 2016 Pixar\n//\n"
                  "// Licensed under the terms set forth in the LICENSE.txt file available at\n"
                  "// https://openusd.org/license.\n//\n")
 _IDENTIFIER = re.compile(r"[a-z][A-Za-z0-9]*")
+PROTECTED = ("PixarAnimationStudios/OpenUSD", "graphics.pixar.com/usd", "openusd.org", "OpenUSD", "open-usd")
 
 
 class AddError(UntwineError):
@@ -71,18 +72,41 @@ def derive(m: Manifest, mirror: Path, tag: str, lib: str, library: upstream.PxrL
 
 
 def nearest_sibling(m: Manifest, deps: set[str], python: str) -> Repo:
-    candidates = [r for r in m.libraries() if r.kind == "library" and m.repo_path(r.name).is_dir()]
+    candidates = [r for r in m.libraries() if r.kind == "library" and r.deps and m.repo_path(r.name).is_dir()
+                  and r.has_python == (python != "none")]
     if not candidates:
-        raise AddError("no existing library repository to copy the release configuration from")
-    return min(candidates, key=lambda r: (r.has_python != (python != "none"), len(set(r.deps) ^ deps),
-                                          len(r.test_deps), r.name))
+        raise AddError(f"no existing library repository with dependencies and the same Python shape ({python}) "
+                       "to copy the release configuration from; create this repository by hand")
+    return min(candidates, key=lambda r: (r.python != python, len(set(r.deps) ^ deps), len(r.test_deps), r.name))
 
 
 def rename(text: str, old: str, new: str) -> str:
+    keep = {f"\x00{i}\x00": token for i, token in enumerate(PROTECTED)}
+    for placeholder, token in keep.items():
+        text = text.replace(token, placeholder)
     cap_old, cap_new = old[:1].upper() + old[1:], new[:1].upper() + new[1:]
     text = re.sub(rf"(?<![A-Za-z0-9]){re.escape(old)}(?![a-z0-9])", new, text)
     text = re.sub(rf"(?<![A-Z]){re.escape(cap_old)}(?![a-z])", cap_new, text)
-    return re.sub(rf"(?<![A-Z]){re.escape(old.upper())}(?![A-Z])", new.upper(), text)
+    text = re.sub(rf"(?<![A-Za-z0-9]){re.escape(old.upper())}(?![A-Z])", new.upper(), text)
+    for placeholder, token in keep.items():
+        text = text.replace(placeholder, token)
+    return text
+
+
+def _comment(path: str, text: str) -> str:
+    if path.endswith(".md"):
+        return f"<!-- {text} -->"
+    return f"// {text}" if path.endswith((".cpp", ".h", ".hpp")) else f"# {text}"
+
+
+def _odd_identifiers(original: str, renamed: str, lib: str) -> list[str]:
+    """Renamed lines that still name the library outside the known package and macro patterns."""
+    cap, up = lib[:1].upper() + lib[1:], lib.upper()
+    safe = re.compile(rf"pxr[-/_.:]+{lib}\b|Pxr{cap}|pxr\.{cap}|PXR_{up}_H|{up}_(?:API|EXPORTS|INTERNAL_NS|"
+                      rf"NAMESPACE_\w+|(?:MAJOR_|MINOR_|PATCH_)?VERSION)\b|\(\s*{lib}\b|TARGETS\s+{lib}\b")
+    forms = re.compile(rf"(?<![A-Za-z0-9]){lib}(?![a-z0-9])|(?<![A-Z]){cap}(?![a-z])|(?<![A-Za-z0-9]){up}(?![A-Z])")
+    return [line.strip() for before, line in zip(original.splitlines(), renamed.splitlines())
+            if before != line and forms.search(safe.sub("", line))]
 
 
 def _dep_of(line: str, names: set[str]) -> str | None:
@@ -233,9 +257,12 @@ def _config_paths(clone: Path, sibling: Repo) -> list[str]:
     return keep
 
 
-def _todo_block(sibling: Repo, library: upstream.PxrLibrary) -> str:
+def _todo_block(sibling: Repo, library: upstream.PxrLibrary, deps: list[str]) -> str:
     lines = [f"# {TODO}: copied from {sibling.name}; replace the sibling's source, header,",
              "# Python, and test lists with this library's own, declared upstream as:"]
+    external = [e for e in library.libraries if e not in deps]
+    if external:
+        lines.append(f"#   external LIBRARIES: {' '.join(external)}  (check the sibling's onetbb/TBB and other requirements)")
     for key, values in library.sections.items():
         if key != "LIBRARIES" and values:
             lines.append(f"#   {key}: {' '.join(values)}")
@@ -256,11 +283,22 @@ def _configure(m: Manifest, target: Path, lib: str, sibling: Repo, deps: list[st
         except UnicodeDecodeError:
             destination.write_bytes(data)
             continue
-        text = rewrite_deps(rename(text, sibling.lib, lib), old_deps, deps, python_of)
+        renamed = rename(text, sibling.lib, lib)
+        odd = _odd_identifiers(text, renamed, lib)
+        text = rewrite_deps(renamed, old_deps, deps, python_of)
+        text = re.sub(r"(?m)^([ \t]*)(description\s*=)",
+                      lambda mo: f"{mo.group(1)}{_comment(path, f'{TODO} description (copied from {sibling.name})')}\n"
+                                 f"{mo.group(1)}{mo.group(2)}", text)
         if path in ("src/CMakeLists.txt", "test/CMakeLists.txt"):
-            text = _todo_block(sibling, library) + text
+            text = _todo_block(sibling, library, deps) + text
         elif path.endswith("moduleDeps.cpp"):
             text = f"// {TODO}: reconstruct per docs/python-bindings.md (copied from {sibling.name}).\n" + text
+        else:
+            if path == "README.md":
+                odd.insert(0, "the description and links")
+            if odd:
+                text = _comment(path, f"{TODO} renamed sibling identifiers (copied from {sibling.name}): "
+                                      + "; ".join(odd[:5])) + "\n" + text
         destination.write_text(text)
     gitutil.run(target, "add", "-A")
     gitutil.run(target, "commit", "--quiet", "-F", "-", input=config_message("boost" in deps).encode())
@@ -275,6 +313,9 @@ def _append_manifest(m: Manifest, name: str, path: str, python: str, deps: list[
 
 
 def add(m: Manifest, lib: str, *, upstream_path: str | None = None, python: str | None = None) -> tuple[Path, Repo]:
+    if not re.fullmatch(r"[a-z][a-z0-9]*", lib):
+        raise AddError(f"'{lib}': library names must be lowercase; camelCase libraries such as usdGeom need a "
+                       "package naming rule first (Conan package names are lowercase)")
     name = f"pxr-{lib}"
     if name in m.repos:
         raise AddError(f"{name} is already in untwine.toml")
@@ -312,20 +353,27 @@ def publish_repo(m: Manifest, name: str, *, confirm: Callable[[list[str]], bool]
     path = m.repo_path(name)
     if repo is None or not path.is_dir():
         raise AddError(f"{name} is not a repository in untwine.toml")
-    if gitutil.ok(path, "remote", "get-url", "origin"):
-        raise AddError(f"{name} already has an origin remote; it is already published")
+    if gitutil.git(path, "status", "--porcelain", "--untracked-files=no"):
+        raise AddError(f"{name} has uncommitted changes; commit or revert them so what is checked is what is pushed")
+    if gitutil.git(path, "symbolic-ref", "--quiet", "HEAD") != "refs/heads/main":
+        raise AddError(f"{name} must have main checked out so what is checked is what is pushed")
+    has_origin = gitutil.ok(path, "remote", "get-url", "origin")
+    if has_origin and gitutil.git(path, "ls-remote", "--heads", "origin", "main", "open-usd"):
+        raise AddError(f"{name} is already published")
     findings = verify.run_checks(path, m, repo)
     if findings:
         raise AddError(f"{name} is not ready to publish:\n  " + "\n  ".join(f"{f.check}: {f.message}" for f in findings))
     slug = github.slug(m, name)
     main, usd = gitutil.rev(path, "main"), gitutil.rev(path, "open-usd")
-    if not confirm([f"create the public GitHub repository {slug}",
-                    f"push main {main[:12]} and open-usd {usd[:12]} to it"]):
+    first = f"push to the existing origin of {name} (resuming)" if has_origin else \
+        f"create the public GitHub repository {slug} (or reuse it if a previous attempt created it empty)"
+    if not confirm([first, f"push main {main[:12]} and open-usd {usd[:12]} to it"]):
         return None
-    url = github.create_repo(slug, f"OpenUSD's '{repo.lib}' library as a standalone package.")
-    gitutil.run(path, "remote", "add", "origin", url)
+    if not has_origin:
+        url = github.repo_url(slug) or github.create_repo(slug, f"OpenUSD's '{repo.lib}' library as a standalone package.")
+        gitutil.run(path, "remote", "add", "origin", url)
     gitutil.run(path, "push", "--quiet", "--atomic", "--force-with-lease=refs/heads/main:",
                 "--force-with-lease=refs/heads/open-usd:", "origin", "main", "open-usd")
     gitutil.run(path, "fetch", "--quiet", "origin")
     gitutil.run(path, "branch", "--quiet", "--set-upstream-to=origin/main", "main")
-    return url
+    return gitutil.git(path, "remote", "get-url", "origin")

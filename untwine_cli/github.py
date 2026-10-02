@@ -71,3 +71,8 @@ def checks(repo_slug: str, number: int) -> str:
 def create_repo(repo_slug: str, description: str) -> str:
     _call(["repo", "create", repo_slug, "--public", "--description", description])
     return _call(["repo", "view", repo_slug, "--json", "sshUrl", "--jq", ".sshUrl"]).strip()
+
+
+def repo_url(repo_slug: str) -> str | None:
+    proc = _gh(["repo", "view", repo_slug, "--json", "sshUrl", "--jq", ".sshUrl"])
+    return proc.stdout.strip() or None if proc.returncode == 0 else None
