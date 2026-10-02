@@ -1,20 +1,26 @@
 # Add a library
 
-`untwine add` is not built yet (phase 2 of the CLI design). Until then:
-
-1. Add the repository to `untwine.toml` with its upstream path, Python shape,
-   and deps. Derive deps from upstream's `pxr_library(LIBRARIES ...)` (plus
-   `boost` when the library has Python bindings) and record any extra direct
-   dependency in `extra_deps` with the reason.
-2. Create `open-usd` by filtering the subtree at the current release in a
-   throwaway clone (`git filter-repo --path <subtree> --path-rename
-   <subtree>/:`), never inside an existing repository.
-3. Create `Restructure the '<lib>' library as a standalone package.` with the
-   transformations in [`source-transformations.md`](source-transformations.md)
-   and the commit message style in [`history.md`](history.md).
-4. Create `Add minimal release configuration.` by adapting the nearest
-   sibling with the same dependency and Python shape, following
-   [`packaging.md`](packaging.md), [`namespaces.md`](namespaces.md), and
-   [`python-bindings.md`](python-bindings.md).
-5. Put each genuine fix in its own commit after the two core commits.
-6. `./untwine verify <repo> --diff` and [`validation.md`](validation.md).
+1. `./untwine add <lib>` (for example `pcp`). It locates the library in
+   OpenUSD at the manifest's release, derives its direct dependencies from
+   upstream's `pxr_library()` (and stops with the order to add any library
+   that has no repository yet), and creates `../pxr-<lib>` with:
+   * `open-usd`: the filtered upstream history;
+   * `Restructure the '<lib>' library as a standalone package.`: generated
+     (layout, include and namespace substitutions, `pxr.h.in`, `NOTICE.txt`,
+     `LICENSE.txt`, commit message);
+   * `Add minimal release configuration.`: the nearest sibling's current
+     files with names and dependency lists rewritten.
+   It also adds the library to `untwine.toml`. Nothing remote is touched.
+2. Resolve every `TODO(untwine): review` marker by amending the config
+   commit: replace the copied source, header, Python, and test lists with
+   the ones listed in the marker (from upstream's `pxr_library()`), and
+   reconstruct `moduleDeps.cpp` per [`python-bindings.md`](python-bindings.md).
+   Review the rest against [`packaging.md`](packaging.md) and
+   [`namespaces.md`](namespaces.md); record any extra direct dependency in
+   `untwine.toml` `extra_deps` with the reason.
+3. Build and test it through Conan and, with Python bindings, the wheels
+   ([`validation.md`](validation.md)). Put each genuine fix in its own commit.
+4. `./untwine verify pxr-<lib> --diff` must be clean.
+5. `./untwine publish-repo pxr-<lib>` creates the public GitHub repository
+   and pushes `main` and `open-usd` after confirmation. Commit the updated
+   `untwine.toml`.

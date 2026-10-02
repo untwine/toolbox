@@ -25,6 +25,8 @@ one (see `workspace` in `untwine.toml`).
 ./untwine push-prs [repos]              push sync branches and open PRs (asks first)
 ./untwine promote [repos]               move main/open-usd to the reviewed PR heads (asks first)
 ./untwine discard v26.11 [repos]        throw a release attempt away
+./untwine add <lib>                     create ../pxr-<lib> from OpenUSD (local only)
+./untwine publish-repo pxr-<lib>        create its GitHub repository and push (asks first)
 ```
 
 Run tests with `python3 -m unittest discover -s tests -t . -v`.

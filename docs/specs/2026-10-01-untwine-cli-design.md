@@ -319,7 +319,7 @@ Read-only conformance checks; exits non-zero on failure:
 `--diff` lists every file that differs from `transform(open-usd)`, marking
 whitespace-only differences.
 
-### `untwine add <lib> [--upstream PATH] [--python optional|required]` (phase 2)
+### `untwine add <lib> [--upstream PATH] [--python optional|required]`
 
 1. Locate the upstream path (`pxr/*/<lib>`); error if ambiguous.
 2. Derive deps; error if a dep has no repository yet, printing the order to
@@ -329,10 +329,10 @@ whitespace-only differences.
    derived deps, `NOTICE.txt`, and the standard commit message.
 5. Copy the nearest sibling's release configuration (closest by deps and
    Python shape), rewriting names, deps, and pins. Insert
-   `TODO(untwine): review` markers for source/test lists and
-   `moduleDeps.cpp`; `verify` fails while any marker remains.
+   `TODO(untwine): review` markers, listing upstream's declarations, for
+   source/test lists and `moduleDeps.cpp`; `verify` fails while any marker remains.
 6. Add the manifest entry. Stop for review. Creating the GitHub repository
-   and pushing is a separate confirmed command.
+   and pushing is a separate confirmed command: `untwine publish-repo pxr-<lib>`.
 
 ## Conflict rules
 
@@ -400,6 +400,6 @@ Tests use `unittest` so no packages need installing.
 1. **Before the next quarterly sync:** `manifest`, `upstream`, `transform`,
    `verify`, `replay`, `versions`, `report`, `github`; commands `sync`,
    `resolve`, `status`, `push-prs`, `promote`, `discard`, `verify`.
-2. **Then:** `add`.
+2. **Done:** `add` and `publish-repo`.
 3. **Only if needed:** templates and config drift detection; a read-only
    check that dependency packages exist on Cloudsmith.

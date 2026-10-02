@@ -21,7 +21,7 @@ hands judgment back to you.
 ## Tasks
 
 * Sync to a new OpenUSD release: [`docs/sync-upstream.md`](docs/sync-upstream.md)
-* Add a library: [`docs/split-library.md`](docs/split-library.md)
+* Add a library: `./untwine add <lib>`, then [`docs/split-library.md`](docs/split-library.md)
 * Check a repository: `./untwine verify [repos] [--diff]`
 
 ## Reference
