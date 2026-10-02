@@ -40,6 +40,19 @@ class RewriteTest(TempTest):
             '    "pxr-boost-dev==26.8.*",\n'
         ))
 
+    def test_openusd_license_keeps_only_its_own_section(self):
+        bar = "=" * 60
+        text = (f"{bar}\nOpenUSD\n{bar}\n\nTerms of the license \n  continued.\t\n\n\n"
+                f"{bar}\nRapidJSON\n{bar}\n\nOther terms.\n")
+        self.assertEqual(add.openusd_license(text),
+                         f"{bar}\nOpenUSD\n{bar}\n\nTerms of the license\n  continued.\n")
+
+    def test_notice_trims_whitespace(self):
+        upstream = "Universal Scene Description   \r\nCopyright 2016 Pixar\r\n   \r\n\r\n\r\nPixar.\r\n"
+        self.assertEqual(add.notice(upstream, "pcp"),
+                         "Universal Scene Description\nCopyright 2016 Pixar\n\nPixar.\n\n"
+                         + add.NOTICE_PARAGRAPH.format(lib="pcp"))
+
     def test_pxr_h_in(self):
         text = add.pxr_h_in("pcp", ["arch", "sdf", "pegtl", "boost"])
         self.assertIn("#include <pxr/arch/pxr.h>\n#include <pxr/sdf/pxr.h>\n", text)

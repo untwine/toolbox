@@ -214,6 +214,20 @@ def config_message(python: bool) -> str:
     return "Add minimal release configuration.\n\n" + "\n".join(f"- {b}" for b in bullets) + "\n"
 
 
+def notice(upstream_notice: str | None, lib: str) -> str:
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(line.rstrip() for line in (upstream_notice or "").splitlines()))
+    return (text.strip("\n") + "\n\n" if text.strip() else "") + NOTICE_PARAGRAPH.format(lib=lib)
+
+
+def openusd_license(text: str) -> str:
+    lines = [line.rstrip() for line in text.splitlines()]
+    bars = [i for i, line in enumerate(lines) if line.startswith("====")]
+    # Third bar opens the first bundled third-party section.
+    if len(bars) > 2:
+        lines = lines[:bars[2]]
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
 def _restructure(m: Manifest, target: Path, lib: str, mirror: Path, tag: str, deps: list[str]) -> None:
     dropped_subst = False
     for path in sorted(gitutil.paths(target, "HEAD")):
@@ -226,12 +240,11 @@ def _restructure(m: Manifest, target: Path, lib: str, mirror: Path, tag: str, de
         if destination != path:
             gitutil.run(target, "mv", "--", path, destination)
         (target / destination).write_bytes(transform.transform_bytes(data, lib))
-    notice = gitutil.blob(mirror, tag, "NOTICE.txt")
-    paragraph = NOTICE_PARAGRAPH.format(lib=lib)
-    (target / "NOTICE.txt").write_text((notice.decode().rstrip("\n") + "\n\n" if notice else "") + paragraph)
+    upstream_notice = gitutil.blob(mirror, tag, "NOTICE.txt")
+    (target / "NOTICE.txt").write_text(notice(upstream_notice and upstream_notice.decode(), lib))
     license_text = gitutil.blob(mirror, tag, "LICENSE.txt")
     if license_text is not None:
-        (target / "LICENSE.txt").write_bytes(license_text)
+        (target / "LICENSE.txt").write_text(openusd_license(license_text.decode()))
     (target / f"src/pxr/{lib}").mkdir(parents=True, exist_ok=True)
     (target / f"src/pxr/{lib}/pxr.h.in").write_text(pxr_h_in(lib, deps))
     gitutil.run(target, "add", "-A")
