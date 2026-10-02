@@ -164,6 +164,28 @@ def _promote_run(m: Manifest, args: argparse.Namespace) -> int:
 COMMANDS.append(("promote", "move main and open-usd to the reviewed sync branches", _promote_args, _promote_run))
 
 
+def _add_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("lib", help="library name, for example pcp")
+    p.add_argument("--upstream", help="subtree path in OpenUSD, when it cannot be located automatically")
+    p.add_argument("--python", choices=("optional", "required"), help="override the Python packaging shape")
+
+
+def _add_run(m: Manifest, args: argparse.Namespace) -> int:
+    from . import add
+    path, sibling = add.add(m, args.lib, upstream_path=args.upstream, python=args.python)
+    repo = manifest.load(m.path).repos[f"pxr-{args.lib}"]
+    print(f"created {path} (release configuration copied from {sibling.name})")
+    print(f"  upstream {repo.upstream}, python {repo.python}, deps {', '.join(repo.deps) or 'none'}")
+    for finding in verify.run_checks(path, manifest.load(m.path), repo):
+        print(f"  {finding.check}: {finding.message}")
+    print("review it (docs/split-library.md), resolve every TODO(untwine) marker, build it, "
+          f"then run: untwine publish-repo pxr-{args.lib}")
+    return 0
+
+
+COMMANDS.append(("add", "create a new pxr-<lib> repository from OpenUSD", _add_args, _add_run))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="untwine")
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
