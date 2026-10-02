@@ -82,3 +82,9 @@ upstream = "pxr/usd/sdf"
 python = "optional"
 deps = ["arch", "tf", "gf", "pegtl", "trace", "ts", "vt", "work", "ar", "plug", "boost"]
 extra_deps = { plug = "includes <pxr/plug/...> headers directly" }
+
+[repos.pxr-pcp]
+upstream = "pxr/usd/pcp"
+python = "optional"
+deps = ["arch", "tf", "trace", "vt", "sdf", "work", "ar", "boost"]
+extra_deps = { arch = "includes <pxr/arch/...> headers directly" }

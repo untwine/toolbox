@@ -80,4 +80,4 @@ class ManifestTest(TempTest):
     def test_real_manifest_loads(self):
         m = manifest.load(Path(__file__).resolve().parent.parent / "untwine.toml")
         self.assertEqual(manifest.levels(m)[0], ["pxr-arch", "pxr-boost", "pxr-pegtl", "pxr-tbb"])
-        self.assertEqual(manifest.levels(m)[-1], ["pxr-sdf"])
+        self.assertEqual(manifest.levels(m)[-1], ["pxr-pcp"])
