@@ -7,7 +7,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from . import UntwineError, manifest, replay, state, sync, upstream, verify
+from . import UntwineError, manifest, replay, report, state, sync, upstream, verify
 from .manifest import Manifest
 
 DEFAULT_MANIFEST = Path(__file__).resolve().parent.parent / "untwine.toml"
@@ -58,11 +58,7 @@ COMMANDS.append(("verify", "check repositories against the Untwine conventions",
 
 
 def _print_states(m: Manifest, tag: str, repos: list[manifest.Repo]) -> None:
-    for repo in repos:
-        status = state.local_status(m, tag, repo.name)
-        print(f"{repo.name}: {status.state}")
-        for item in status.attention:
-            print(f"  ! {item}")
+    print(report.table(m, tag, [report.collect(m, tag, r.name) for r in repos]))
 
 
 def _sync_args(p: argparse.ArgumentParser) -> None:
@@ -108,6 +104,30 @@ def _discard_run(m: Manifest, args: argparse.Namespace) -> int:
 COMMANDS.append(("sync", "sync repositories to an OpenUSD release", _sync_args, _sync_run))
 COMMANDS.append(("resolve", "continue a sync after fixing a conflict", _resolve_args, _resolve_run))
 COMMANDS.append(("discard", "remove all local (and pushed) state of a release", _discard_args, _discard_run))
+
+
+def _status_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("repo", nargs="?")
+    p.add_argument("--tag")
+    p.add_argument("--no-github", action="store_true", help="do not query PRs and CI")
+
+
+def _status_run(m: Manifest, args: argparse.Namespace) -> int:
+    tag = current_tag(m, args.tag)
+    use_github = not args.no_github
+    if use_github:
+        from . import github
+        use_github = github.available()
+    if args.repo:
+        [repo] = manifest.selected(m, [args.repo])
+        print(report.detail(report.collect(m, tag, repo.name, use_github=use_github), m, tag))
+    else:
+        repos = [r for r in manifest.selected(m, []) if m.repo_path(r.name).is_dir()]
+        print(report.table(m, tag, [report.collect(m, tag, r.name, use_github=use_github) for r in repos]))
+    return 0
+
+
+COMMANDS.append(("status", "show the release in progress", _status_args, _status_run))
 
 
 def main(argv: list[str] | None = None) -> int:

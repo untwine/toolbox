@@ -36,7 +36,7 @@ class SyncTest(TempTest):
         with redirect_stdout(out):
             code = cli.main(["--manifest", str(world.manifest_path), "resolve", "pxr-foo"])
         self.assertEqual(code, 0)
-        self.assertIn("pxr-foo: verified", out.getvalue())
+        self.assertRegex(out.getvalue(), r"pxr-foo\s+verified")
 
     def test_preflight_refusals(self):
         world = FakeWorld(self.tmp)
@@ -65,7 +65,7 @@ class SyncTest(TempTest):
         with redirect_stdout(out):
             code = cli.main(["--manifest", str(world.manifest_path), "sync", TAG, "pxr-foo", "--dry-run"])
         self.assertEqual(code, 0)
-        self.assertIn("pxr-foo: verified", out.getvalue())
+        self.assertRegex(out.getvalue(), r"pxr-foo\s+verified")
         self.assertEqual(gitutil.git(world.clone, "for-each-ref", "refs/untwine", "refs/notes", "refs/heads/sync"), "")
         self.assertFalse(state.worktree_path(world.m, TAG, "pxr-foo").exists())
 
