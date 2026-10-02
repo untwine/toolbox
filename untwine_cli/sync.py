@@ -31,6 +31,11 @@ def preflight(m: Manifest, tag: str, repos: list[Repo]) -> None:
             recorded = gitutil.rev(clone, state.ref(tag, f"old-{branch}"))
             if recorded and recorded != local:
                 problems.append(f"{repo.name}: {branch} moved since this release started; run `untwine discard {tag}`")
+        worktree = state.worktree_path(m, tag, repo.name)
+        stopped = state.read_json(clone, tag, "pending") or state.worktree_busy(worktree)
+        if worktree.exists() and not stopped and gitutil.git(worktree, "status", "--porcelain", "--untracked-files=no"):
+            problems.append(f"{repo.name}: worktree {worktree} has uncommitted changes; commit them with "
+                            "`git commit --fixup=<owning commit>` or revert them")
     if problems:
         raise UntwineError("preflight failed:\n  " + "\n  ".join(problems))
     for repo in repos:
@@ -55,12 +60,19 @@ def sync(m: Manifest, tag: str, names: list[str]) -> list[Repo]:
     mirror = upstream.ensure_mirror(m)
     for repo in repos:
         clone = m.repo_path(repo.name)
+        state.delete_ref(clone, state.ref(tag, "finalized"))  # before review, so an interruption never reads as verified
         state.delete_ref(clone, state.ref(tag, "review"))
         try:
             sync_repo(m, repo, tag, mirror)
         except UntwineError as exc:
             state.write_json(clone, tag, "review", {"attention": [str(exc)], "review": []})
     return repos
+
+
+def in_progress(m: Manifest, tag: str, repos: list[Repo]) -> list[str]:
+    return [r.name for r in repos if m.repo_path(r.name).is_dir()
+            and (gitutil.ref_exists(m.repo_path(r.name), state.ref(tag, "old-main"))
+                 or state.worktree_path(m, tag, r.name).exists())]
 
 
 def discard(m: Manifest, tag: str, names: list[str], *, confirm: Callable[[list[str]], bool], remote: bool = True) -> None:

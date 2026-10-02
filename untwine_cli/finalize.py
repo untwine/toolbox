@@ -62,7 +62,12 @@ def _squash_and_annotate(worktree: Path, clone: Path, tag: str, base: str) -> li
     notes = [state.read_note(clone, tag, c) for c in gitutil.git(clone, "rev-list", "--reverse", f"{base}..{anchor}").split()]
     subjects = gitutil.git(worktree, "log", "--reverse", "--format=%s", f"{base}..HEAD").splitlines()
     if any(s.startswith(("fixup! ", "amend! ", "squash! ")) for s in subjects):
-        gitutil.run(worktree, "rebase", "--quiet", "--interactive", "--autosquash", base)
+        proc = gitutil.run(worktree, "rebase", "--quiet", "--interactive", "--autosquash", base, check=False)
+        if proc.returncode != 0:
+            gitutil.run(worktree, "rebase", "--abort", check=False)
+            return ["autosquash failed and was aborted: a fixup conflicts with a later commit; "
+                    "rework the fixups in the worktree so they fold cleanly, then sync again: "
+                    + (proc.stderr or proc.stdout).decode(errors="replace").strip().splitlines()[-1]]
     commits = gitutil.git(worktree, "rev-list", "--reverse", f"{base}..HEAD").split()
     if len(commits) != len(notes):
         return [f"expected {len(notes)} commits on the sync branch after folding fixups, found {len(commits)}; "

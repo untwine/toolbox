@@ -125,6 +125,16 @@ class LocalStatus:
     promoted: bool = False
 
 
+def worktree_busy(worktree: Path) -> bool:
+    """True while a cherry-pick or rebase is stopped in the worktree."""
+    if not worktree.exists():
+        return False
+    if gitutil.ref_exists(worktree, "CHERRY_PICK_HEAD"):
+        return True
+    return any(Path(gitutil.git(worktree, "rev-parse", "--path-format=absolute", "--git-path", d)).exists()
+               for d in ("rebase-merge", "rebase-apply"))
+
+
 def local_status(m: Manifest, tag: str, repo_name: str) -> LocalStatus:
     repo = m.repo_path(repo_name)
     if not repo.is_dir() or not gitutil.ref_exists(repo, ref(tag, "old-main")):
@@ -143,9 +153,7 @@ def local_status(m: Manifest, tag: str, repo_name: str) -> LocalStatus:
     if status.tip:
         status.replayed = replayed_map(repo, tag, status.sources)
         status.pending = read_json(repo, tag, "pending")
-        worktree = worktree_path(m, tag, repo_name)
-        picking = worktree.exists() and gitutil.ref_exists(worktree, "CHERRY_PICK_HEAD")
-        if status.pending or picking:
+        if status.pending or worktree_busy(worktree_path(m, tag, repo_name)):
             status.state = "needs-attention"
         elif not gitutil.ref_exists(repo, ref(tag, "replayed")):
             status.state = "replaying"

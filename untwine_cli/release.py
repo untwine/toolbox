@@ -29,19 +29,35 @@ def push_prs(m: Manifest, tag: str, names: list[str], *, confirm: Confirm) -> li
         raise UntwineError("only verified repositories can be pushed:\n  " + "\n  ".join(not_ready))
     for repo in repos:
         _assert_no_ai_attribution(m, tag, repo)
-    lines = [f"push {state.sync_branch(tag)} and {state.sync_open_usd(tag)} to {github.slug(m, r.name)} "
-             f"and open or update its PR" for r in repos]
+    pushes = {r.name: _pushes(m, tag, r.name) for r in repos}
+    lines = [f"{github.slug(m, name)}: {branch} {(old or 'new')[:12]} -> {new[:12]}, then open or update its PR"
+             for name, items in pushes.items() for branch, new, old, _ in items]
     if not repos or not confirm(lines):
         return []
     urls = []
     for repo, rep in zip(repos, reports):
         clone = m.repo_path(repo.name)
-        refspecs = [f"{b}:refs/heads/{b}" for b in (state.sync_branch(tag), state.sync_open_usd(tag))]
-        gitutil.run(clone, "push", "--quiet", "--force-with-lease", "origin", *refspecs)
+        items = pushes[repo.name]
+        leases = [f"--force-with-lease=refs/heads/{branch}:{old or ''}" for branch, _, old, _ in items]
+        refspecs = [f"{new}:refs/heads/{branch}" for branch, new, _, _ in items]
+        proc = gitutil.run(clone, "push", "--quiet", "--atomic", *leases, "origin", *refspecs, check=False)
+        if proc.returncode != 0:
+            raise UntwineError(f"{repo.name}: the remote sync branches changed since the last push-prs (a commit "
+                               "pushed to the PR?); fetch and review it before pushing again: "
+                               + proc.stderr.decode(errors="replace").strip())
+        for branch, new, _, recorded in items:
+            gitutil.run(clone, "update-ref", recorded, new)
         pr = github.upsert_pr(github.slug(m, repo.name), head=state.sync_branch(tag), base="main",
                               title=f"Sync {repo.name} to OpenUSD {tag}", body=report.pr_body(rep, m, tag))
         urls.append(f"{repo.name}: {pr['url']}")
     return urls
+
+
+def _pushes(m: Manifest, tag: str, name: str) -> list[tuple[str, str, str | None, str]]:
+    """(branch, local sha, sha last pushed by push-prs, ref recording it) for both sync branches."""
+    clone = m.repo_path(name)
+    return [(branch, gitutil.rev(clone, branch), gitutil.rev(clone, state.ref(tag, recorded)), state.ref(tag, recorded))
+            for branch, recorded in ((state.sync_branch(tag), "pushed-main"), (state.sync_open_usd(tag), "pushed-open-usd"))]
 
 
 def _in_release(m: Manifest, tag: str, name: str) -> bool:
@@ -71,8 +87,11 @@ def promote_problem(m: Manifest, tag: str, repo: manifest.Repo) -> str | None:
         return f"CI checks are {checks}"
     gitutil.run(clone, "fetch", "--quiet", "origin")
     for name, branch in (("old-main", "main"), ("old-open-usd", "open-usd")):
-        if gitutil.rev(clone, f"refs/remotes/origin/{branch}") != gitutil.rev(clone, state.ref(tag, name)):
+        recorded = gitutil.rev(clone, state.ref(tag, name))
+        if gitutil.rev(clone, f"refs/remotes/origin/{branch}") != recorded:
             return f"origin/{branch} moved since this release started"
+        if gitutil.rev(clone, f"refs/heads/{branch}") != recorded:
+            return f"local {branch} has commits that are not in the recorded tip; push or drop them first"
     return None
 
 
@@ -86,19 +105,44 @@ def _promote_one(m: Manifest, tag: str, repo: manifest.Repo) -> None:
     gitutil.run(clone, "push", "--quiet", "--atomic",
                 f"--force-with-lease=refs/heads/main:{old_main}", f"--force-with-lease=refs/heads/open-usd:{old_usd}",
                 "origin", f"{tip}:refs/heads/main", f"{usd}:refs/heads/open-usd")
+    gitutil.run(clone, "update-ref", state.ref(tag, "promoted-open-usd"), usd)
     gitutil.run(clone, "update-ref", state.ref(tag, "promoted"), tip)
-    gitutil.run(clone, "push", "--quiet", "origin", "--delete", state.sync_branch(tag), state.sync_open_usd(tag))
+
+
+def _complete(m: Manifest, tag: str, repo: manifest.Repo) -> None:
+    """Idempotent cleanup after the main push: local clone first, then the remote sync branches."""
+    clone = m.repo_path(repo.name)
+    tip, usd = gitutil.rev(clone, state.ref(tag, "promoted")), gitutil.rev(clone, state.ref(tag, "promoted-open-usd"))
     worktree = state.worktree_path(m, tag, repo.name)
     if worktree.exists():
         gitutil.run(clone, "worktree", "remove", "--force", str(worktree))
+    gitutil.run(clone, "worktree", "prune")
     head = gitutil.run(clone, "symbolic-ref", "--quiet", "--short", "HEAD", check=False).stdout.decode().strip()
-    for branch, sha in (("main", tip), ("open-usd", usd)):
+    for branch, sha, old in (("main", tip, "old-main"), ("open-usd", usd, "old-open-usd")):
+        current, recorded = gitutil.rev(clone, f"refs/heads/{branch}"), gitutil.rev(clone, state.ref(tag, old))
+        if current == sha:
+            continue
+        if current != recorded:
+            raise UntwineError(f"local {branch} has commits that are not in the promoted history; update it by hand")
         if head == branch:
             gitutil.run(clone, "reset", "--quiet", "--keep", sha)
         else:
-            gitutil.run(clone, "update-ref", f"refs/heads/{branch}", sha)
-    gitutil.run(clone, "branch", "-D", state.sync_branch(tag), state.sync_open_usd(tag))
+            gitutil.run(clone, "update-ref", f"refs/heads/{branch}", sha, recorded)
+    for branch in (state.sync_branch(tag), state.sync_open_usd(tag)):
+        gitutil.run(clone, "branch", "-D", branch, check=False)
+    out = gitutil.git(clone, "ls-remote", "--heads", "origin", state.sync_branch(tag), state.sync_open_usd(tag))
+    remote = [line.split("\t", 1)[1] for line in out.splitlines()]
+    if remote:
+        gitutil.run(clone, "push", "--quiet", "origin", "--delete", *remote)
     gitutil.run(clone, "fetch", "--quiet", "--prune", "origin")
+    gitutil.run(clone, "update-ref", state.ref(tag, "completed"), tip)
+
+
+def _try_complete(m: Manifest, tag: str, repo: manifest.Repo, out: Callable[[str], None]) -> None:
+    try:
+        _complete(m, tag, repo)
+    except UntwineError as exc:
+        out(f"{repo.name}: promoted, but cleanup failed: {exc}; fix it and rerun promote")
 
 
 def write_release(m: Manifest, tag: str) -> Path:
@@ -118,6 +162,10 @@ def promote(m: Manifest, tag: str, names: list[str], *, confirm: Confirm, out: C
     for level in manifest.levels(m):
         batch = [m.repos[n] for n in level if m.repos[n].kind != "support" and (not names or n in names)
                  and _in_release(m, tag, n)]
+        for repo in batch:
+            clone = m.repo_path(repo.name)
+            if gitutil.ref_exists(clone, state.ref(tag, "promoted")) and not gitutil.ref_exists(clone, state.ref(tag, "completed")):
+                _try_complete(m, tag, repo, out)
         ready = []
         for repo in batch:
             problem = promote_problem(m, tag, repo)
@@ -134,8 +182,13 @@ def promote(m: Manifest, tag: str, names: list[str], *, confirm: Confirm, out: C
         if not confirm(lines):
             return done
         for repo in ready:
-            _promote_one(m, tag, repo)
+            try:
+                _promote_one(m, tag, repo)
+            except UntwineError as exc:
+                out(f"skip {repo.name}: push failed: {exc}")
+                continue
             done.append(repo.name)
+            _try_complete(m, tag, repo, out)
     members = [r.name for r in m.libraries() if _in_release(m, tag, r.name)]
     if members and all(gitutil.ref_exists(m.repo_path(n), state.ref(tag, "promoted")) for n in members):
         out(f"release complete: wrote {write_release(m, tag)} and recorded {tag} in untwine.toml; commit both")

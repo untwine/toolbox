@@ -83,13 +83,36 @@ def _apply(worktree: Path, resolution: Resolution) -> None:
     gitutil.run(worktree, "add", "--", resolution.path)
 
 
+def _record(clone: Path, tag: str, commit: str, note: state.Note) -> None:
+    state.write_note(clone, tag, commit, note)
+    state.delete_ref(clone, state.ref(tag, "picking"))
+
+
+def _start_pick(clone: Path, worktree: Path, tag: str, source: str, resolution: str = "clean",
+                files: tuple[str, ...] = ()) -> None:
+    """Record the pick so a crash before its note can be adopted on the next run."""
+    state.write_json(clone, tag, "picking", {"source": source, "head": gitutil.rev(worktree, "HEAD"),
+                                             "resolution": resolution, "files": list(files)})
+
+
+def _adopt(clone: Path, worktree: Path, tag: str, record: dict, resolution: str, files: tuple[str, ...]) -> bool:
+    """Note HEAD if it is the unnoted commit created right after `record['head']`."""
+    head = gitutil.rev(worktree, "HEAD")
+    if head == record["head"] or gitutil.rev(worktree, "HEAD^") != record["head"]:
+        return False
+    if state.read_note(clone, tag, head) is None:
+        state.write_note(clone, tag, head, state.Note(record["source"], resolution, files))
+    return True
+
+
 def _finish_pick(worktree: Path, clone: Path, tag: str, source: str, resolution: str, files: list[str]) -> None:
+    _start_pick(clone, worktree, tag, source, resolution, tuple(files))
     if gitutil.ok(worktree, "diff", "--cached", "--quiet"):
         gitutil.run(worktree, "cherry-pick", "--skip")
-        state.write_note(clone, tag, source, state.Note(source, "empty", tuple(files)))
+        _record(clone, tag, source, state.Note(source, "empty", tuple(files)))
         return
     gitutil.run(worktree, "cherry-pick", "--continue")
-    state.write_note(clone, tag, gitutil.rev(worktree, "HEAD"), state.Note(source, resolution, tuple(files)))
+    _record(clone, tag, gitutil.rev(worktree, "HEAD"), state.Note(source, resolution, tuple(files)))
 
 
 def replay(m: Manifest, repo: Repo, tag: str) -> bool:
@@ -101,6 +124,10 @@ def replay(m: Manifest, repo: Repo, tag: str) -> bool:
     span = f"{state.ref(tag, 'old-open-usd')}..{state.ref(tag, 'old-main')}"
     if gitutil.git(clone, "rev-list", "--min-parents=2", span):
         raise ReplayError("main contains merge commits; replay needs a linear history")
+    picking = state.read_json(clone, tag, "picking")
+    if picking:
+        _adopt(clone, worktree, tag, picking, picking["resolution"], tuple(picking["files"]))
+        state.delete_ref(clone, state.ref(tag, "picking"))
     sources = state.source_commits(clone, tag)
     done = state.replayed_map(clone, tag, sources)
     todo = [s for s in sources if s not in done]
@@ -108,15 +135,16 @@ def replay(m: Manifest, repo: Repo, tag: str) -> bool:
         raise ReplayError("the sync branch no longer matches the recorded replay; run `untwine discard` and sync again")
     pathmap = None
     for source in todo:
+        _start_pick(clone, worktree, tag, source)
         proc = gitutil.run(worktree, "cherry-pick", source, check=False)
         if proc.returncode == 0:
-            state.write_note(clone, tag, gitutil.rev(worktree, "HEAD"), state.Note(source, "clean"))
+            _record(clone, tag, gitutil.rev(worktree, "HEAD"), state.Note(source, "clean"))
             continue
         unmerged = _unmerged(worktree)
         if not unmerged:
             if _picking(worktree) and gitutil.ok(worktree, "diff", "--cached", "--quiet"):
                 gitutil.run(worktree, "cherry-pick", "--skip")
-                state.write_note(clone, tag, source, state.Note(source, "empty"))
+                _record(clone, tag, source, state.Note(source, "empty"))
                 continue
             raise ReplayError(f"cherry-pick of {source[:12]} failed: {proc.stderr.decode().strip()}")
         pathmap = pathmap or path_map(m, repo, tag)
@@ -129,7 +157,9 @@ def replay(m: Manifest, repo: Repo, tag: str) -> bool:
                 _apply(worktree, resolution)
                 auto.append(path)
         if manual:
-            state.write_json(clone, tag, "pending", {"source": source, "auto": auto, "manual": manual})
+            head = state.read_json(clone, tag, "picking")["head"]
+            state.write_json(clone, tag, "pending", {"source": source, "auto": auto, "manual": manual, "head": head})
+            state.delete_ref(clone, state.ref(tag, "picking"))
             return False
         _finish_pick(worktree, clone, tag, source, "auto", auto)
     gitutil.run(clone, "update-ref", state.ref(tag, "replayed"), gitutil.rev(worktree, "HEAD"))
@@ -154,7 +184,12 @@ def resolve(m: Manifest, repo: Repo, tag: str) -> None:
     pending = state.read_json(clone, tag, "pending")
     if not pending:
         raise ReplayError(f"{repo.name} has no stopped conflict to resolve")
+    files = (*pending["manual"], *pending["auto"])
     if not _picking(worktree):
+        if "head" in pending and _adopt(clone, worktree, tag, pending, "manual", files):
+            state.delete_ref(clone, state.ref(tag, "pending"))
+            state.delete_ref(clone, state.ref(tag, "picking"))
+            return
         raise ReplayError("no cherry-pick is in progress in the worktree; it was committed or aborted by hand. "
                           f"Run `untwine discard {tag} {repo.name}` and sync again")
     unresolved = _unmerged(worktree)

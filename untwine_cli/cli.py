@@ -68,6 +68,10 @@ def _sync_args(p: argparse.ArgumentParser) -> None:
 
 
 def _sync_run(m: Manifest, args: argparse.Namespace) -> int:
+    if args.dry_run:
+        busy = sync.in_progress(m, args.tag, manifest.selected(m, args.repos))
+        if busy:
+            raise UntwineError(f"{args.tag} is already in progress for {', '.join(busy)}; a dry run would discard it")
     repos = sync.sync(m, args.tag, args.repos)
     _print_states(m, args.tag, repos)
     if args.dry_run:
