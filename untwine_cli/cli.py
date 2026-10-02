@@ -7,7 +7,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from . import UntwineError, manifest, verify
+from . import UntwineError, manifest, replay, state, sync, upstream, verify
 from .manifest import Manifest
 
 DEFAULT_MANIFEST = Path(__file__).resolve().parent.parent / "untwine.toml"
@@ -55,6 +55,59 @@ def _verify_run(m: Manifest, args: argparse.Namespace) -> int:
 
 
 COMMANDS.append(("verify", "check repositories against the Untwine conventions", _verify_args, _verify_run))
+
+
+def _print_states(m: Manifest, tag: str, repos: list[manifest.Repo]) -> None:
+    for repo in repos:
+        status = state.local_status(m, tag, repo.name)
+        print(f"{repo.name}: {status.state}")
+        for item in status.attention:
+            print(f"  ! {item}")
+
+
+def _sync_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("tag")
+    p.add_argument("repos", nargs="*")
+    p.add_argument("--dry-run", action="store_true", help="run everything, report, then discard")
+
+
+def _sync_run(m: Manifest, args: argparse.Namespace) -> int:
+    repos = sync.sync(m, args.tag, args.repos)
+    _print_states(m, args.tag, repos)
+    if args.dry_run:
+        sync.discard(m, args.tag, [r.name for r in repos], confirm=lambda lines: True, remote=False)
+        print("dry run: discarded")
+    return 0
+
+
+def _resolve_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("repo")
+    p.add_argument("--tag")
+
+
+def _resolve_run(m: Manifest, args: argparse.Namespace) -> int:
+    tag = current_tag(m, args.tag)
+    [repo] = manifest.selected(m, [args.repo])
+    replay.resolve(m, repo, tag)
+    sync.sync_repo(m, repo, tag, upstream.mirror_path(m))
+    _print_states(m, tag, [repo])
+    return 0
+
+
+def _discard_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("tag")
+    p.add_argument("repos", nargs="*")
+
+
+def _discard_run(m: Manifest, args: argparse.Namespace) -> int:
+    sync.discard(m, args.tag, args.repos, confirm=confirm)
+    print(f"discarded {args.tag}")
+    return 0
+
+
+COMMANDS.append(("sync", "sync repositories to an OpenUSD release", _sync_args, _sync_run))
+COMMANDS.append(("resolve", "continue a sync after fixing a conflict", _resolve_args, _resolve_run))
+COMMANDS.append(("discard", "remove all local (and pushed) state of a release", _discard_args, _discard_run))
 
 
 def main(argv: list[str] | None = None) -> int:
