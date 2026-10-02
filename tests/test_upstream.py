@@ -95,6 +95,12 @@ class ParseTest(TempTest):
         self.assertEqual(upstream.expected_deps(repo, upstream.Dependencies(("arch",), True)), {"arch", "boost"})
 
 
+    def test_sections(self):
+        library = upstream.parse_pxr_library(TF)
+        self.assertEqual(library.sections["PUBLIC_CLASSES"], ("token",))
+        self.assertEqual(library.sections["PYMODULE_CPPFILES"], ("module.cpp",))
+        self.assertEqual(upstream.parse_pxr_library(TS).sections["LIBRARIES"], ("vt", "gf", "tf"))
+
 @needs_filter_repo
 class FilterTest(TempTest):
     def test_filter_and_import(self):

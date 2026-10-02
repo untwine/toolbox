@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import UntwineError, gitutil
@@ -25,6 +25,7 @@ class PxrLibrary:
     name: str
     libraries: tuple[str, ...]
     has_python: bool
+    sections: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -70,8 +71,9 @@ def parse_pxr_library(cmake: str) -> PxrLibrary:
                 out.append(entry)
         return out
 
-    has_python = any(expand(sections.get(key, [])) for key in ("PYMODULE_CPPFILES", "PYMODULE_FILES", "PYTHON_CPPFILES"))
-    return PxrLibrary(name, tuple(expand(sections.get("LIBRARIES", []))), has_python)
+    expanded = {key: tuple(expand(values)) for key, values in sections.items()}
+    has_python = any(expanded.get(key) for key in ("PYMODULE_CPPFILES", "PYMODULE_FILES", "PYTHON_CPPFILES"))
+    return PxrLibrary(name, expanded.get("LIBRARIES", ()), has_python, expanded)
 
 
 def derive_deps(library: PxrLibrary, known: set[str]) -> Dependencies:

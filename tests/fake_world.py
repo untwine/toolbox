@@ -64,6 +64,56 @@ CMAKE = textwrap.dedent("""\
     )
     """)
 ARCH_CMAKE = "pxr_library(arch\n    LIBRARIES\n        ${CMAKE_DL_LIBS}\n)\n"
+QUX_CMAKE = textwrap.dedent("""\
+    pxr_library(qux
+        LIBRARIES
+            arch
+            foo
+            TBB::tbb
+
+        PUBLIC_CLASSES
+            qux
+
+        PYMODULE_CPPFILES
+            module.cpp
+            wrapQux.cpp
+
+        PYMODULE_FILES
+            __init__.py
+    )
+    """)
+QUX_H = LICENSE + textwrap.dedent("""\
+    #ifndef PXR_BASE_QUX_QUX_H
+    #define PXR_BASE_QUX_QUX_H
+
+    #include "pxr/pxr.h"
+    #include "pxr/base/foo/bar.h"
+
+    PXR_NAMESPACE_OPEN_SCOPE
+
+    int Qux();
+
+    PXR_NAMESPACE_CLOSE_SCOPE
+
+    #endif
+    """)
+
+
+def extra_libraries() -> dict[str, str]:
+    qux = "pxr/base/qux/"
+    return {
+        qux + "CMakeLists.txt": QUX_CMAKE, qux + "qux.h": QUX_H,
+        qux + "qux.cpp": LICENSE + '\n#include "pxr/pxr.h"\n#include "pxr/base/qux/qux.h"\n',
+        qux + "module.cpp": MODULE_CPP, qux + "wrapQux.cpp": LICENSE + '\n#include "pxr/base/qux/qux.h"\n',
+        qux + "__init__.py": "from pxr import Tf\n",
+        qux + "testenv/testQux.py": TEST_PY,
+        "pxr/base/zed/CMakeLists.txt": "pxr_library(zed\n    LIBRARIES\n        arch\n        nope\n)\n",
+        "pxr/base/nope/CMakeLists.txt": "pxr_library(nope\n    LIBRARIES\n        arch\n)\n",
+        "pxr/base/dup/CMakeLists.txt": "pxr_library(dup\n    LIBRARIES\n        arch\n)\n",
+        "pxr/usd/dup/CMakeLists.txt": "pxr_library(dup\n    LIBRARIES\n        arch\n)\n",
+    }
+
+
 MANIFEST = textwrap.dedent("""\
     workspace = ".."
     upstream_url = "{url}"
@@ -103,7 +153,7 @@ NOTICE = ("Copyright Pixar.\n\nThis repository is a modified, standalone redistr
 PXR_H_IN = "#ifndef PXR_FOO_PXR_H\n#define PXR_FOO_PXR_H\n#include <pxr/arch/pxr.h>\n#endif\n"
 
 
-def upstream_tree(scenarios: frozenset[str] = frozenset()) -> dict[str, str]:
+def upstream_tree(scenarios: frozenset[str] = frozenset(), *, extra_libs: bool = False) -> dict[str, str]:
     foo = "pxr/base/foo/"
     files = {
         "pxr/base/arch/CMakeLists.txt": ARCH_CMAKE, foo + "CMakeLists.txt": CMAKE,
@@ -125,6 +175,8 @@ def upstream_tree(scenarios: frozenset[str] = frozenset()) -> dict[str, str]:
         files[foo + "CMakeLists.txt"] = CMAKE.replace("        arch\n", "        arch\n        tf\n")
     if "delete" in scenarios:
         del files[foo + "old.h"]
+    if extra_libs:
+        files.update(extra_libraries())
     return files
 
 
@@ -206,12 +258,12 @@ def config_files(tag: str) -> dict[str, str]:
 class FakeWorld:
     """OpenUSD with tags v26.08 and v26.11, and pxr-foo built at v26.08 with an origin."""
 
-    def __init__(self, tmp: Path, scenarios=(), *, with_fix: bool = True):
+    def __init__(self, tmp: Path, scenarios=(), *, with_fix: bool = True, extra_libs: bool = False):
         self.tmp = tmp
         self.upstream = init(tmp / "OpenUSD")
-        commit(self.upstream, upstream_tree(), "Release 26.08")
+        commit(self.upstream, upstream_tree(extra_libs=extra_libs), "Release 26.08")
         sh_git(self.upstream, "tag", "v26.08")
-        commit(self.upstream, upstream_tree(frozenset(scenarios)), "Release 26.11", replace=True)
+        commit(self.upstream, upstream_tree(frozenset(scenarios), extra_libs=extra_libs), "Release 26.11", replace=True)
         sh_git(self.upstream, "tag", "v26.11")
         self.workspace = tmp / "ws"
         toolbox = self.workspace / "toolbox"
