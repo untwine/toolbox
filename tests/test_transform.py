@@ -59,6 +59,8 @@ class PathTest(TempTest):
         self.assertEqual(transform.rule_target(rules, "tf", "wrapToken.cpp")[0], "src/python/wrapToken.cpp")
         self.assertEqual(transform.rule_target(rules, "tf", "module.cpp")[0], "src/python/module.cpp")
         self.assertEqual(transform.rule_target(rules, "tf", "__init__.py")[0], "src/python/__init__.py")
+        self.assertEqual(transform.rule_target(rules, "usd", "generatedSchema.module.h")[0], "src/python/generatedSchema.module.h")
+        self.assertEqual(transform.rule_target(rules, "usd", "codegenTemplates/module.cpp")[0], "src/pxr/usd/codegenTemplates/module.cpp")
         self.assertEqual(transform.rule_target(rules, "tf", "token.h")[0], "src/pxr/tf/token.h")
         self.assertEqual(transform.rule_target(rules, "tf", "sub/x.h")[0], "src/pxr/tf/sub/x.h")
 

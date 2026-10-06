@@ -20,7 +20,7 @@ _PYSUBST = re.compile(r"\A#!/pxrpythonsubst[^\n]*\n(?:#\r?\n)?")
 
 DEFAULT_RULES: tuple[tuple[str, str], ...] = (
     (r"testenv/(.*)", r"test/\1"),
-    (r"((?:wrap[^/]*|module|moduleDeps)\.cpp|__init__\.py)", r"src/python/\1"),
+    (r"((?:wrap[^/]*|module|moduleDeps)\.cpp|generatedSchema\.module\.h|__init__\.py)", r"src/python/\1"),
     (r"(.*)", r"src/pxr/{lib}/\1"),
 )
 
