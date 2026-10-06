@@ -48,6 +48,10 @@ class VerifyTest(TempTest):
                 self.assertIn(check, self.checks())
                 (self.world.clone / rel).write_text(original)
 
+    def test_category_named_library_paths_are_not_old(self):
+        self.mutate("src/pxr/foo/bar.h", "#include <pxr/arch/api.h>", "#include <pxr/usd/stage.h>")
+        self.assertNotIn("old-include-path", self.checks())
+
     def test_root_sources_ci_and_markers(self):
         write(self.world.clone, {
             "stray.cpp": "x\n",
